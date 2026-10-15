@@ -31363,6 +31363,56 @@ mod tests {
   }
 
   #[test]
+  fn test_error_recovery_keeps_preceding_declarations() {
+    use std::sync::{Arc, RwLock};
+
+    fn recovery_test(source: &str, expected: &str) {
+      let warnings = Arc::new(RwLock::new(Vec::new()));
+      let res = StyleSheet::parse(
+        source,
+        ParserOptions {
+          error_recovery: true,
+          warnings: Some(warnings.clone()),
+          ..ParserOptions::default()
+        },
+      )
+      .unwrap();
+      let res = res
+        .to_css(PrinterOptions {
+          minify: true,
+          ..PrinterOptions::default()
+        })
+        .unwrap();
+      assert_eq!(res.code, expected);
+      assert_eq!(
+        warnings.read().unwrap().len(),
+        1,
+        "expected a single warning for {source}"
+      );
+    }
+
+    // An at-rule that is not allowed inside a style rule only drops itself.
+    recovery_test(
+      ".a{color:red;width:1px;@keyframes k{from{opacity:0}}height:2px}",
+      ".a{color:red;width:1px;height:2px}",
+    );
+    recovery_test(
+      ".a{color:red;width:1px;@font-face{src:url(x)}height:2px}",
+      ".a{color:red;width:1px;height:2px}",
+    );
+    // Same for an invalid declaration.
+    recovery_test(
+      ".a{color:red;width:1px;*zoom:1;height:2px}",
+      ".a{color:red;width:1px;height:2px}",
+    );
+    // Declarations before and after a nested rule are both kept.
+    recovery_test(
+      ".a{color:red;width:1px;@keyframes k{from{opacity:0}}@media (hover){color:blue}height:2px}",
+      ".a{color:red;width:1px;@media (hover){color:#00f}height:2px}",
+    );
+  }
+
+  #[test]
   fn test_invalid() {
     error_test(
       ".a{color: hsla(120, 62.32%;}",
